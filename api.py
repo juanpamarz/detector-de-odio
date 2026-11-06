@@ -15,7 +15,8 @@ async def analizar_texto(mensaje: Mensaje):
     resultado = detector(mensaje.texto)[0]
     
     # Determina si el texto es clasificado como Odio o Agresivo con una confianza relevante
-    es_toxico = resultado['label'] in ['HATE', 'AGGRESSIVE'] and resultado['score'] > 0.60
+    # Evalúa si detecta odio, agresividad o grosería con mayor a 0.30 (30%) de confianza
+    es_toxico = resultado['label'] in ['HATE', 'AGGRESSIVE', 'PROFANITY', 'TARGETED'] and resultado['score'] > 0.30
     
     return {
         "texto_recibido": mensaje.texto,
