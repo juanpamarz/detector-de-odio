@@ -9,7 +9,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 API_IA_URL = os.getenv("API_IA_URL", "http://127.0.0.1:8000/analizar/")
 
 # Máximo número de advertencias antes de banear del grupo
-MAX_ADVERTENCIAS = 5
+MAX_ADVERTENCIAS = 50
 
 async def analizar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:

@@ -5,16 +5,19 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from groq import Groq
 from transformers import pipeline
+from database import init_db, registrar_incidente
 
+# 1. Cargar variables de entorno e inicializar base de datos
 load_dotenv()
+init_db()
 
 app = FastAPI(title="Detector de Odio e Inteligencia API con Groq")
 
-# Inicialización del cliente de Groq
+# 2. Inicialización del cliente de Groq
 groq_key = os.getenv("GROQ_API_KEY")
 client_groq = Groq(api_key=groq_key) if groq_key else None
 
-# Cargar el modelo local de Hugging Face como respaldo definitivo
+# 3. Cargar el modelo local de Hugging Face como respaldo definitivo
 print("⏳ Cargando modelo local de Hugging Face (RoBERTuito)...")
 try:
     clasificador_local = pipeline("text-classification", model="pysentimiento/robertuito-hate-speech")
@@ -23,19 +26,22 @@ except Exception as err:
     print(f"⚠️ No se pudo cargar el modelo local: {err}")
     clasificador_local = None
 
+# Modelo de datos que recibe la API desde Telegram
 class Mensaje(BaseModel):
     texto: str
+    usuario_id: int = 0
+    usuario_nombre: str = "Anónimo"
 
 def evaluar_modelo_local(texto: str):
-    """Respaldo si falla la API externa."""
+    """Respaldo rápido con el modelo local de Hugging Face cuando falla la API externa."""
     texto_lower = texto.lower()
     
-    # 1. Crisis
+    # 1. Evaluación de Crisis
     palabras_crisis = ["suicid", "matarm", "quitarme la vida", "no quiero vivir", "acabar con todo", "morir", "desaparecer"]
     if any(p in texto_lower for p in palabras_crisis):
         return {"categoria": "CRISIS", "requiere_advertencia": False, "es_crisis": True}
 
-    # 2. Toxicidad
+    # 2. Evaluación de Toxicidad por palabras clave
     palabras_toxicas = ["mierda", "inutil", "inútil", "estupido", "estúpido", "pendejo", "imbecil", "imbécil", "perra", "puta"]
     if any(p in texto_lower for p in palabras_toxicas):
         return {"categoria": "TOXICO", "requiere_advertencia": True, "es_crisis": False}
@@ -48,7 +54,7 @@ def evaluar_modelo_local(texto: str):
             if label in ['hateful', 'targeted', 'profanity', 'aggressive'] and score > 0.20:
                 return {"categoria": "TOXICO", "requiere_advertencia": True, "es_crisis": False}
         except Exception as e:
-            print(f"Error local: {e}")
+            print(f"Error evaluando localmente: {e}")
 
     return {"categoria": "NORMAL", "requiere_advertencia": False, "es_crisis": False}
 
@@ -71,7 +77,9 @@ async def analizar_texto(mensaje: Mensaje):
     }}
     """
     
-    # Intentar con Groq (Llama 3 8B Instant)
+    datos = None
+
+    # Intentar análisis con Groq
     if client_groq:
         try:
             chat_completion = client_groq.chat.completions.create(
@@ -82,10 +90,26 @@ async def analizar_texto(mensaje: Mensaje):
             res_text = chat_completion.choices[0].message.content
             datos = json.loads(res_text)
             print(f"✅ Respuesta exitosa de GROQ: {datos}")
-            return datos
         except Exception as e:
             print(f"⚠️ Groq falló o no respondió: {e}")
 
-    # Respaldo local inmediato
-    print("🔄 Derivando al análisis local...")
-    return evaluar_modelo_local(mensaje.texto)
+    # Fallback local si Groq no respondió
+    if not datos:
+        print("🔄 Derivando al análisis local...")
+        datos = evaluar_modelo_local(mensaje.texto)
+
+    # GUARDAR EN LA BASE DE DATOS (SQLite)
+    try:
+        registrar_incidente(
+            usuario_id=mensaje.usuario_id,
+            usuario_nombre=mensaje.usuario_nombre,
+            mensaje_texto=mensaje.texto,
+            categoria=datos.get("categoria", "NORMAL"),
+            es_crisis=datos.get("es_crisis", False),
+            requiere_advertencia=datos.get("requiere_advertencia", False)
+        )
+        print("💾 Incidente guardado en la base de datos.")
+    except Exception as db_err:
+        print(f"⚠️ Error al guardar en DB: {db_err}")
+
+    return datos

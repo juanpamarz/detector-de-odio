@@ -1,0 +1,14 @@
+# Claves y variables secretas
+.env
+.env.*
+moderacion_bot.db
+*.pyc
+# Entornos virtuales de Python
+venv/
+.venv/
+env/
+
+# Caché de Python
+__pycache__/
+*.pyc
+.pytest_cache/
