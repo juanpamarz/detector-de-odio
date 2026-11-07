@@ -1,36 +1,91 @@
+import os
+import json
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
+from groq import Groq
 from transformers import pipeline
 
-app = FastAPI(title="Detector de Odio API")
+load_dotenv()
 
-# Cargar el modelo preentrenado de pysentimiento
-detector = pipeline("text-classification", model="pysentimiento/robertuito-hate-speech")
+app = FastAPI(title="Detector de Odio e Inteligencia API con Groq")
+
+# Inicialización del cliente de Groq
+groq_key = os.getenv("GROQ_API_KEY")
+client_groq = Groq(api_key=groq_key) if groq_key else None
+
+# Cargar el modelo local de Hugging Face como respaldo definitivo
+print("⏳ Cargando modelo local de Hugging Face (RoBERTuito)...")
+try:
+    clasificador_local = pipeline("text-classification", model="pysentimiento/robertuito-hate-speech")
+    print("✅ Modelo local cargado correctamente.")
+except Exception as err:
+    print(f"⚠️ No se pudo cargar el modelo local: {err}")
+    clasificador_local = None
 
 class Mensaje(BaseModel):
     texto: str
 
+def evaluar_modelo_local(texto: str):
+    """Respaldo si falla la API externa."""
+    texto_lower = texto.lower()
+    
+    # 1. Crisis
+    palabras_crisis = ["suicid", "matarm", "quitarme la vida", "no quiero vivir", "acabar con todo", "morir", "desaparecer"]
+    if any(p in texto_lower for p in palabras_crisis):
+        return {"categoria": "CRISIS", "requiere_advertencia": False, "es_crisis": True}
+
+    # 2. Toxicidad
+    palabras_toxicas = ["mierda", "inutil", "inútil", "estupido", "estúpido", "pendejo", "imbecil", "imbécil", "perra", "puta"]
+    if any(p in texto_lower for p in palabras_toxicas):
+        return {"categoria": "TOXICO", "requiere_advertencia": True, "es_crisis": False}
+
+    if clasificador_local:
+        try:
+            res = clasificador_local(texto)[0]
+            label = str(res['label']).lower()
+            score = res['score']
+            if label in ['hateful', 'targeted', 'profanity', 'aggressive'] and score > 0.20:
+                return {"categoria": "TOXICO", "requiere_advertencia": True, "es_crisis": False}
+        except Exception as e:
+            print(f"Error local: {e}")
+
+    return {"categoria": "NORMAL", "requiere_advertencia": False, "es_crisis": False}
+
 @app.post("/analizar/")
 async def analizar_texto(mensaje: Mensaje):
-    resultado = detector(mensaje.texto)[0]
+    prompt = f"""
+    Analiza el siguiente mensaje enviado a un chat grupal:
+    "{mensaje.texto}"
+
+    Debes clasificarlo en una de estas categorías:
+    1. "CRISIS": El usuario expresa ideación suicida, deseo de hacerse daño o atentar contra su vida.
+    2. "TOXICO": El mensaje contiene lenguaje de odio, agresión grave, acoso o insultos directos.
+    3. "NORMAL": Mensaje cotidiano, seguro y no ofensivo.
+
+    Responde ÚNICAMENTE un formato JSON estricto con esta estructura:
+    {{
+        "categoria": "CRISIS" | "TOXICO" | "NORMAL",
+        "requiere_advertencia": true/false,
+        "es_crisis": true/false
+    }}
+    """
     
-    # Normalizamos la etiqueta recibida a minúsculas para evitar fallos
-    etiqueta = resultado['label'].lower()
-    score = resultado['score']
-    
-    # Imprimir en consola para monitorear cada petición
-    print(f"📩 Texto: '{mensaje.texto}' | Etiqueta detectada: '{etiqueta}' | Score: {score:.4f}")
-    
-    # Lista de etiquetas reales que usa pysentimiento: 'hateful', 'targeted', 'aggressive'
-    etiquetas_toxicas = ['hateful', 'targeted', 'aggressive']
-    
-    # Umbral flexible: activa advertencia si coincide la etiqueta Y supera 0.05 (5% de score)
-    # o si se trata de un mensaje muy corto/directo
-    es_toxico = etiqueta in etiquetas_toxicas and score > 0.05
-    
-    return {
-        "texto_recibido": mensaje.texto,
-        "etiqueta": etiqueta,
-        "confianza": round(score, 4),
-        "requiere_advertencia": es_toxico
-    }
+    # Intentar con Groq (Llama 3 8B Instant)
+    if client_groq:
+        try:
+            chat_completion = client_groq.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model="llama-3.1-8b-instant",
+                response_format={"type": "json_object"}
+            )
+            res_text = chat_completion.choices[0].message.content
+            datos = json.loads(res_text)
+            print(f"✅ Respuesta exitosa de GROQ: {datos}")
+            return datos
+        except Exception as e:
+            print(f"⚠️ Groq falló o no respondió: {e}")
+
+    # Respaldo local inmediato
+    print("🔄 Derivando al análisis local...")
+    return evaluar_modelo_local(mensaje.texto)
