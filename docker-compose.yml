@@ -1,0 +1,106 @@
+# Centinela v2 — entorno local completo.
+#
+#   docker compose up -d --build
+#   docker compose up -d --scale worker=3     # más nodos trabajadores
+#
+# Panel:        http://localhost:8080
+# API (docs):   http://localhost:8000/api/docs
+# RabbitMQ UI:  http://localhost:15672  (guest / guest)
+
+name: centinela
+
+x-backend: &backend
+  build: ./backend
+  image: centinela-backend:local
+  env_file: .env
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://centinela:centinela@postgres:5432/centinela
+    BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+    CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: centinela
+      POSTGRES_PASSWORD: centinela
+      POSTGRES_DB: centinela
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U centinela -d centinela"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend
+    command: ["migrate"]
+    restart: "no"
+
+  api:
+    <<: *backend
+    command: ["api"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    <<: *backend
+    command: ["worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Receptor por long-polling (local, sin URL pública). En la nube se usa el webhook de la API.
+  bot:
+    <<: *backend
+    command: ["gateway"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    image: centinela-frontend:local
+    environment:
+      API_UPSTREAM: http://api:8000
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  rabbitdata:

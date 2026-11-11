@@ -12,3 +12,11 @@ env/
 __pycache__/
 *.pyc
 .pytest_cache/
+# Frontend
+node_modules/
+dist/
+.vercel/
+
+# Herramientas
+.mypy_cache/
+.ruff_cache/

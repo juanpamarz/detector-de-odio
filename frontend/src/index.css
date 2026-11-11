@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tokens: canales RGB para que Tailwind pueda aplicar opacidad. */
+:root {
+  color-scheme: light;
+  --canvas: 241 243 247;
+  --panel: 255 255 255;
+  --sunken: 246 247 250;
+  --ink: 24 32 43;
+  --ink-2: 74 85 102;
+  --muted: 112 121 137;
+  --line: 221 226 233;
+  --brand: 31 58 95;
+  --brand-ink: 255 255 255;
+  --focus: 42 120 214;
+  --danger: 208 59 59;
+  --good: 12 130 12;
+
+  /* Series categóricas (paleta validada, orden fijo, nunca ciclado) */
+  --s-identity: #2a78d6;
+  --s-aggression: #eb6834;
+  --s-sexual: #1baf7a;
+  --s-crisis: #eda100;
+  --s-volume: #9aa3b2;
+  --chart-grid: #e6e9ef;
+  --chart-axis: #707989;
+  --chart-surface: #ffffff;
+}
+
+:root.dark {
+  color-scheme: dark;
+  --canvas: 13 18 26;
+  --panel: 21 28 39;
+  --sunken: 17 23 33;
+  --ink: 232 236 242;
+  --ink-2: 174 183 196;
+  --muted: 128 138 153;
+  --line: 38 48 66;
+  --brand: 143 179 224;
+  --brand-ink: 13 18 26;
+  --focus: 57 135 229;
+  --danger: 230 103 103;
+  --good: 60 180 60;
+
+  --s-identity: #3987e5;
+  --s-aggression: #d95926;
+  --s-sexual: #199e70;
+  --s-crisis: #c98500;
+  --s-volume: #5d677a;
+  --chart-grid: #232c3c;
+  --chart-axis: #808a99;
+  --chart-surface: #151c27;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-canvas font-sans text-[15px] text-ink;
+    font-feature-settings: "tnum" 1;
+  }
+  h1, h2, h3 {
+    @apply font-serif text-ink;
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--focus));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  ::selection {
+    background: rgb(var(--focus) / 0.25);
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-panel border border-line bg-panel;
+  }
+  .input {
+    @apply h-9 w-full rounded-md border border-line bg-panel px-3 text-sm text-ink placeholder:text-muted
+      transition-colors duration-150 hover:border-ink-2/40 focus:border-focus focus:outline-none;
+  }
+  .btn {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium
+      transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-brand-ink hover:bg-brand/90;
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-panel text-ink hover:bg-sunken;
+  }
+  .figure-caption {
+    @apply text-[13px] leading-relaxed text-ink-2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.recharts-tooltip-cursor { fill: rgb(var(--ink) / 0.04); }
